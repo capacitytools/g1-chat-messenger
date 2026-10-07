@@ -22,13 +22,11 @@ export default function AvatarUploader({
     setError(null);
 
     try {
-      // 1. Ask our server for a signed upload payload
       const signRes = await fetch("/api/upload/sign", { method: "POST" });
       if (!signRes.ok) throw new Error("Could not get upload signature");
       const { timestamp, folder, signature, apiKey, cloudName } =
         await signRes.json();
 
-      // 2. Upload directly to Cloudinary
       const formData = new FormData();
       formData.append("file", file);
       formData.append("api_key", apiKey);
@@ -44,7 +42,6 @@ export default function AvatarUploader({
       const data = await uploadRes.json();
       const secureUrl: string = data.secure_url;
 
-      // 3. Save URL on the profile
       const {
         data: { user }
       } = await supabase.auth.getUser();
