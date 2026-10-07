@@ -25,52 +25,21 @@ export async function findOrCreateConversation(otherUsername: string) {
   if (!other) return { error: `User @${clean} not found` };
   if (other.id === user.id) return { error: "That's you" };
 
-  // Ask the database what auth.uid() returns for THIS request
-  const { data: dbSaysUserIs, error: rpcErr } = await supabase.rpc("who_am_i");
+  const { data: convId, error: rpcErr } = await supabase.rpc(
+    "create_conversation_with",
+    { other_user: other.id }
+  );
 
-  const { data: conv, error: convErr } = await supabase
-    .from("conversations")
-    .insert({ is_group: false, created_by: user.id })
-    .select("id")
-    .single();
-
-  if (convErr || !conv) {
+  if (rpcErr || !convId) {
     return {
-      error: "CREATE_FAILED",
+      error: `RPC failed: ${rpcErr?.message ?? "no result"}`,
       debug: {
-        authUserIdFromJWT: user.id,
-        dbSaysUserIs: dbSaysUserIs ?? null,
-        rpcError: rpcErr?.message ?? null,
-        match: dbSaysUserIs === user.id,
-        pgMessage: convErr?.message ?? "unknown",
-        pgCode: (convErr as any)?.code ?? "none"
+        code: (rpcErr as any)?.code ?? "none",
+        hint: (rpcErr as any)?.hint ?? "none",
+        details: (rpcErr as any)?.details ?? "none"
       }
     };
   }
 
-  const { error: selfErr } = await supabase
-    .from("conversation_participants")
-    .insert({ conversation_id: conv.id, user_id: user.id });
-
-  if (selfErr) {
-    return {
-      error: `SELF PARTICIPANT FAILED: ${selfErr.message} | code=${
-        (selfErr as any)?.code ?? "none"
-      }`
-    };
-  }
-
-  const { error: otherPartErr } = await supabase
-    .from("conversation_participants")
-    .insert({ conversation_id: conv.id, user_id: other.id });
-
-  if (otherPartErr) {
-    return {
-      error: `OTHER PARTICIPANT FAILED: ${otherPartErr.message} | code=${
-        (otherPartErr as any)?.code ?? "none"
-      }`
-    };
-  }
-
-  return { conversationId: conv.id };
+  return { conversationId: convId as string };
 }
