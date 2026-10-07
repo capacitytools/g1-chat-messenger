@@ -25,26 +25,12 @@ export async function findOrCreateConversation(otherUsername: string) {
   if (!other) return { error: `User @${clean} not found` };
   if (other.id === user.id) return { error: "That's you" };
 
-  // --- DEBUG BLOCK START ---
-  const { data: sessionData } = await supabase.auth.getSession();
-  const debug = {
-    authUserId: user.id,
-    hasSession: !!sessionData.session,
-    sessionUserId: sessionData.session?.user?.id ?? null,
-    sessionRole: sessionData.session?.user?.role ?? null,
-    hasToken: !!sessionData.session?.access_token,
-    tokenPreview: sessionData.session?.access_token
-      ? sessionData.session.access_token.slice(0, 20) + "..."
-      : null
-  };
-  // --- DEBUG BLOCK END ---
+  // Ask the database what auth.uid() returns for THIS request
+  const { data: dbSaysUserIs, error: rpcErr } = await supabase.rpc("who_am_i");
 
   const { data: conv, error: convErr } = await supabase
     .from("conversations")
-    .insert({
-      is_group: false,
-      created_by: user.id
-    })
+    .insert({ is_group: false, created_by: user.id })
     .select("id")
     .single();
 
@@ -52,30 +38,37 @@ export async function findOrCreateConversation(otherUsername: string) {
     return {
       error: "CREATE_FAILED",
       debug: {
-        ...debug,
-        pgMessage: convErr?.message ?? "no message",
-        pgCode: (convErr as any)?.code ?? "none",
-        pgDetails: (convErr as any)?.details ?? "none",
-        pgHint: (convErr as any)?.hint ?? "none"
+        authUserIdFromJWT: user.id,
+        dbSaysUserIs: dbSaysUserIs ?? null,
+        rpcError: rpcErr?.message ?? null,
+        match: dbSaysUserIs === user.id,
+        pgMessage: convErr?.message ?? "unknown",
+        pgCode: (convErr as any)?.code ?? "none"
       }
     };
   }
 
-  const { error: partErr } = await supabase
+  const { error: selfErr } = await supabase
     .from("conversation_participants")
-    .insert([
-      { conversation_id: conv.id, user_id: user.id },
-      { conversation_id: conv.id, user_id: other.id }
-    ]);
+    .insert({ conversation_id: conv.id, user_id: user.id });
 
-  if (partErr) {
+  if (selfErr) {
     return {
-      error: "PARTICIPANT_FAILED",
-      debug: {
-        ...debug,
-        pgMessage: partErr.message,
-        pgCode: (partErr as any)?.code ?? "none"
-      }
+      error: `SELF PARTICIPANT FAILED: ${selfErr.message} | code=${
+        (selfErr as any)?.code ?? "none"
+      }`
+    };
+  }
+
+  const { error: otherPartErr } = await supabase
+    .from("conversation_participants")
+    .insert({ conversation_id: conv.id, user_id: other.id });
+
+  if (otherPartErr) {
+    return {
+      error: `OTHER PARTICIPANT FAILED: ${otherPartErr.message} | code=${
+        (otherPartErr as any)?.code ?? "none"
+      }`
     };
   }
 
