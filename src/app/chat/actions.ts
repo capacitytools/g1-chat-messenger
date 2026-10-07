@@ -10,12 +10,11 @@ export async function findOrCreateConversation(otherUsername: string) {
     error: userErr
   } = await supabase.auth.getUser();
 
-  // Debug: return what the server sees
+  if (userErr) {
+    return { error: `getUser error: ${userErr.message}` };
+  }
   if (!user) {
-    return {
-      error: "Not signed in (debug)",
-      debug: { userErr: userErr?.message ?? null }
-    };
+    return { error: "Not signed in (getUser returned null)" };
   }
 
   const clean = otherUsername.trim().toLowerCase().replace(/^@/, "");
@@ -27,12 +26,12 @@ export async function findOrCreateConversation(otherUsername: string) {
     .maybeSingle();
 
   if (otherErr) {
-    return { error: `Profile lookup failed: ${otherErr.message}` };
+    return { error: `Profile lookup: ${otherErr.message}` };
   }
-  if (!other) return { error: "User not found" };
+  if (!other) return { error: `User @${clean} not found` };
   if (other.id === user.id) return { error: "That's you" };
 
-  // Direct create, no reuse logic for now
+  // Try insert and return full error object
   const { data: conv, error: convErr } = await supabase
     .from("conversations")
     .insert({
@@ -44,13 +43,13 @@ export async function findOrCreateConversation(otherUsername: string) {
 
   if (convErr || !conv) {
     return {
-      error: `Create failed: ${convErr?.message ?? "unknown"}`,
-      debug: {
-        attemptedCreatedBy: user.id,
-        code: (convErr as any)?.code,
-        details: (convErr as any)?.details,
-        hint: (convErr as any)?.hint
-      }
+      error: `CREATE FAILED: ${convErr?.message ?? "no message"} | code=${
+        (convErr as any)?.code ?? "none"
+      } | details=${
+        (convErr as any)?.details ?? "none"
+      } | hint=${(convErr as any)?.hint ?? "none"} | authUser=${
+        user.id
+      }`
     };
   }
 
@@ -62,7 +61,11 @@ export async function findOrCreateConversation(otherUsername: string) {
     ]);
 
   if (partErr) {
-    return { error: `Participant insert failed: ${partErr.message}` };
+    return {
+      error: `PARTICIPANT FAILED: ${partErr.message} | code=${
+        (partErr as any)?.code ?? "none"
+      }`
+    };
   }
 
   return { conversationId: conv.id };
