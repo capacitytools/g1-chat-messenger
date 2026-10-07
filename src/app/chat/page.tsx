@@ -2,6 +2,8 @@ import { redirect } from "next/navigation";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import SignOutButton from "./sign-out-button";
+import NewChat from "./new-chat";
+import ConversationList from "./conversation-list";
 
 export default async function ChatPage() {
   const supabase = createClient();
@@ -19,14 +21,11 @@ export default async function ChatPage() {
 
   return (
     <main className="flex min-h-screen flex-col px-6 py-10">
-      <header className="mb-8 flex items-center justify-between">
+      <header className="mb-6 flex items-center justify-between">
         <div>
           <h1 className="text-xl font-bold">G1-Chat</h1>
           <p className="text-xs text-g1-muted">
-            Signed in as{" "}
-            <span className="text-g1-accent">
-              @{profile?.username ?? "user"}
-            </span>
+            @{profile?.username ?? "user"}
           </p>
         </div>
         <div className="flex gap-2">
@@ -40,11 +39,9 @@ export default async function ChatPage() {
         </div>
       </header>
 
-      <div className="flex flex-1 items-center justify-center rounded-2xl border border-dashed border-g1-border">
-        <p className="text-sm text-g1-muted">
-          Your conversations will appear here.
-        </p>
-      </div>
+      <NewChat />
+
+      <ConversationList currentUserId={user.id} />
     </main>
   );
 }
