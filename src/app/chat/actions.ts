@@ -4,59 +4,66 @@ import { createClient } from "@/lib/supabase/server";
 
 export async function findOrCreateConversation(otherUsername: string) {
   const supabase = createClient();
+
   const {
-    data: { user }
+    data: { user },
+    error: userErr
   } = await supabase.auth.getUser();
-  if (!user) return { error: "Not signed in" };
+
+  // Debug: return what the server sees
+  if (!user) {
+    return {
+      error: "Not signed in (debug)",
+      debug: { userErr: userErr?.message ?? null }
+    };
+  }
 
   const clean = otherUsername.trim().toLowerCase().replace(/^@/, "");
 
-  const { data: other } = await supabase
+  const { data: other, error: otherErr } = await supabase
     .from("profiles")
     .select("id, username")
     .eq("username", clean)
     .maybeSingle();
 
+  if (otherErr) {
+    return { error: `Profile lookup failed: ${otherErr.message}` };
+  }
   if (!other) return { error: "User not found" };
   if (other.id === user.id) return { error: "That's you" };
 
-  // Look for an existing 1:1 conversation
-  const { data: mine } = await supabase
-    .from("conversation_participants")
-    .select("conversation_id")
-    .eq("user_id", user.id);
-
-  const myConvIds = (mine ?? []).map((r) => r.conversation_id);
-
-  if (myConvIds.length) {
-    const { data: existing } = await supabase
-      .from("conversation_participants")
-      .select("conversation_id, conversations!inner(is_group)")
-      .eq("user_id", other.id)
-      .in("conversation_id", myConvIds);
-
-    const oneToOne = (existing ?? []).find(
-      (r: any) => r.conversations?.is_group === false
-    );
-
-    if (oneToOne) {
-      return { conversationId: oneToOne.conversation_id };
-    }
-  }
-
-  // Create new
+  // Direct create, no reuse logic for now
   const { data: conv, error: convErr } = await supabase
     .from("conversations")
-    .insert({ is_group: false, created_by: user.id })
+    .insert({
+      is_group: false,
+      created_by: user.id
+    })
     .select("id")
     .single();
 
-  if (convErr || !conv) return { error: convErr?.message ?? "Failed" };
+  if (convErr || !conv) {
+    return {
+      error: `Create failed: ${convErr?.message ?? "unknown"}`,
+      debug: {
+        attemptedCreatedBy: user.id,
+        code: (convErr as any)?.code,
+        details: (convErr as any)?.details,
+        hint: (convErr as any)?.hint
+      }
+    };
+  }
 
-  await supabase.from("conversation_participants").insert([
-    { conversation_id: conv.id, user_id: user.id },
-    { conversation_id: conv.id, user_id: other.id }
-  ]);
+  const { error: partErr } = await supabase
+    .from("conversation_participants")
+    .insert([
+      { conversation_id: conv.id, user_id: user.id },
+      { conversation_id: conv.id, user_id: other.id }
+    ]);
+
+  if (partErr) {
+    return { error: `Participant insert failed: ${partErr.message}` };
+  }
 
   return { conversationId: conv.id };
 }
