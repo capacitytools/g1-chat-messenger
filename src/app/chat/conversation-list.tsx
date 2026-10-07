@@ -23,10 +23,16 @@ export default function ConversationList({
     let active = true;
 
     async function load() {
-      const { data: myConvs } = await supabase
+      const { data: myConvs, error: convErr } = await supabase
         .from("conversation_participants")
         .select("conversation_id")
         .eq("user_id", currentUserId);
+
+      if (convErr) {
+        console.error(convErr);
+        if (active) setLoading(false);
+        return;
+      }
 
       const ids = (myConvs ?? []).map((c) => c.conversation_id);
       if (!ids.length) {
@@ -45,20 +51,33 @@ export default function ConversationList({
 
       const { data: others } = await supabase
         .from("conversation_participants")
-        .select("conversation_id, user_id, profiles(username)")
+        .select("conversation_id, user_id")
         .in("conversation_id", ids)
         .neq("user_id", currentUserId);
 
-      const map = new Map<string, string>();
-      (others ?? []).forEach((o: any) => {
-        map.set(o.conversation_id, o.profiles?.username ?? "unknown");
+      const otherUserIds = Array.from(
+        new Set((others ?? []).map((o) => o.user_id))
+      );
+
+      const { data: profiles } = await supabase
+        .from("profiles")
+        .select("id, username")
+        .in("id", otherUserIds.length ? otherUserIds : ["00000000-0000-0000-0000-000000000000"]);
+
+      const idToUsername = new Map<string, string>();
+      (profiles ?? []).forEach((p) => idToUsername.set(p.id, p.username));
+
+      const convToOtherUsername = new Map<string, string>();
+      (others ?? []).forEach((o) => {
+        const uname = idToUsername.get(o.user_id);
+        if (uname) convToOtherUsername.set(o.conversation_id, uname);
       });
 
       if (!active) return;
       setRows(
         (convs ?? []).map((c) => ({
           conversation_id: c.id,
-          other_username: map.get(c.id) ?? null,
+          other_username: convToOtherUsername.get(c.id) ?? null,
           last_message_at: c.last_message_at
         }))
       );
@@ -72,6 +91,11 @@ export default function ConversationList({
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "conversations" },
+        () => load()
+      )
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "messages" },
         () => load()
       )
       .subscribe();
