@@ -22,14 +22,21 @@ export default async function ConversationPage({
 
   if (!conv) notFound();
 
-  const { data: other } = await supabase
+  const { data: others } = await supabase
     .from("conversation_participants")
-    .select("profiles(username)")
+    .select("user_id")
     .eq("conversation_id", params.id)
-    .neq("user_id", user.id)
-    .maybeSingle();
+    .neq("user_id", user.id);
 
-  const otherUsername = (other as any)?.profiles?.username ?? "unknown";
+  let otherUsername = "unknown";
+  if (others && others.length) {
+    const { data: profile } = await supabase
+      .from("profiles")
+      .select("username")
+      .eq("id", others[0].user_id)
+      .maybeSingle();
+    if (profile?.username) otherUsername = profile.username;
+  }
 
   return (
     <main className="flex h-screen flex-col">
