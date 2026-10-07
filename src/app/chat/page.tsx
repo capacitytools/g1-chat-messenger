@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation";
+import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import SignOutButton from "./sign-out-button";
 
@@ -28,7 +29,15 @@ export default async function ChatPage() {
             </span>
           </p>
         </div>
-        <SignOutButton />
+        <div className="flex gap-2">
+          <Link
+            href="/profile"
+            className="rounded-lg border border-g1-border bg-g1-surface px-3 py-1.5 text-xs text-g1-muted"
+          >
+            Profile
+          </Link>
+          <SignOutButton />
+        </div>
       </header>
 
       <div className="flex flex-1 items-center justify-center rounded-2xl border border-dashed border-g1-border">
