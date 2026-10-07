@@ -31,7 +31,6 @@ export async function findOrCreateConversation(otherUsername: string) {
   if (!other) return { error: `User @${clean} not found` };
   if (other.id === user.id) return { error: "That's you" };
 
-  // Try insert and return full error object
   const { data: conv, error: convErr } = await supabase
     .from("conversations")
     .insert({
@@ -42,14 +41,16 @@ export async function findOrCreateConversation(otherUsername: string) {
     .single();
 
   if (convErr || !conv) {
+    const {
+      data: { session }
+    } = await supabase.auth.getSession();
+
     return {
       error: `CREATE FAILED: ${convErr?.message ?? "no message"} | code=${
         (convErr as any)?.code ?? "none"
-      } | details=${
-        (convErr as any)?.details ?? "none"
-      } | hint=${(convErr as any)?.hint ?? "none"} | authUser=${
-        user.id
-      }`
+      } | authUser=${user.id} | role=${
+        session?.user?.role ?? "no-session"
+      } | token=${session?.access_token ? "has-token" : "no-token"}`
     };
   }
 
