@@ -10,12 +10,8 @@ export async function findOrCreateConversation(otherUsername: string) {
     error: userErr
   } = await supabase.auth.getUser();
 
-  if (userErr) {
-    return { error: `getUser error: ${userErr.message}` };
-  }
-  if (!user) {
-    return { error: "Not signed in (getUser returned null)" };
-  }
+  if (userErr) return { error: `getUser error: ${userErr.message}` };
+  if (!user) return { error: "Not signed in" };
 
   const clean = otherUsername.trim().toLowerCase().replace(/^@/, "");
 
@@ -25,11 +21,23 @@ export async function findOrCreateConversation(otherUsername: string) {
     .eq("username", clean)
     .maybeSingle();
 
-  if (otherErr) {
-    return { error: `Profile lookup: ${otherErr.message}` };
-  }
+  if (otherErr) return { error: `Profile lookup: ${otherErr.message}` };
   if (!other) return { error: `User @${clean} not found` };
   if (other.id === user.id) return { error: "That's you" };
+
+  // --- DEBUG BLOCK START ---
+  const { data: sessionData } = await supabase.auth.getSession();
+  const debug = {
+    authUserId: user.id,
+    hasSession: !!sessionData.session,
+    sessionUserId: sessionData.session?.user?.id ?? null,
+    sessionRole: sessionData.session?.user?.role ?? null,
+    hasToken: !!sessionData.session?.access_token,
+    tokenPreview: sessionData.session?.access_token
+      ? sessionData.session.access_token.slice(0, 20) + "..."
+      : null
+  };
+  // --- DEBUG BLOCK END ---
 
   const { data: conv, error: convErr } = await supabase
     .from("conversations")
@@ -41,16 +49,15 @@ export async function findOrCreateConversation(otherUsername: string) {
     .single();
 
   if (convErr || !conv) {
-    const {
-      data: { session }
-    } = await supabase.auth.getSession();
-
     return {
-      error: `CREATE FAILED: ${convErr?.message ?? "no message"} | code=${
-        (convErr as any)?.code ?? "none"
-      } | authUser=${user.id} | role=${
-        session?.user?.role ?? "no-session"
-      } | token=${session?.access_token ? "has-token" : "no-token"}`
+      error: "CREATE_FAILED",
+      debug: {
+        ...debug,
+        pgMessage: convErr?.message ?? "no message",
+        pgCode: (convErr as any)?.code ?? "none",
+        pgDetails: (convErr as any)?.details ?? "none",
+        pgHint: (convErr as any)?.hint ?? "none"
+      }
     };
   }
 
@@ -63,9 +70,12 @@ export async function findOrCreateConversation(otherUsername: string) {
 
   if (partErr) {
     return {
-      error: `PARTICIPANT FAILED: ${partErr.message} | code=${
-        (partErr as any)?.code ?? "none"
-      }`
+      error: "PARTICIPANT_FAILED",
+      debug: {
+        ...debug,
+        pgMessage: partErr.message,
+        pgCode: (partErr as any)?.code ?? "none"
+      }
     };
   }
 
