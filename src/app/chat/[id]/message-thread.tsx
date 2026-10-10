@@ -196,7 +196,7 @@ export default function MessageThread({
                   }`}
                 >
                   {isCard ? (
-                    <G1Card metadata={m.metadata!} mine={mine} />
+                    <G1Card metadata={m.metadata as any} mine={mine} />
                   ) : (
                     <>
                       {m.attachment_url && m.attachment_type === "image" && (
