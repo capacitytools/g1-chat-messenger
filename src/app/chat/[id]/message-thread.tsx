@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import G1Card from "./g1-card";
+import CardComposer from "./card-composer";
 
 type Message = {
   id: string;
@@ -42,6 +43,7 @@ export default function MessageThread({
   const [sending, setSending] = useState(false);
   const [pending, setPending] = useState<PendingUpload | null>(null);
   const [uploadError, setUploadError] = useState<string | null>(null);
+  const [showCardComposer, setShowCardComposer] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -263,6 +265,14 @@ export default function MessageThread({
       >
         <button
           type="button"
+          onClick={() => setShowCardComposer(true)}
+          className="rounded-lg border border-g1-border bg-g1-surface px-3 py-2 text-sm"
+          aria-label="Send G1 card"
+        >
+          ✨
+        </button>
+        <button
+          type="button"
           onClick={() => fileInputRef.current?.click()}
           disabled={!!pending}
           className="rounded-lg border border-g1-border bg-g1-surface px-3 py-2 text-sm disabled:opacity-50"
@@ -292,6 +302,14 @@ export default function MessageThread({
           Send
         </button>
       </form>
+
+      {showCardComposer && (
+        <CardComposer
+          conversationId={conversationId}
+          currentUserId={currentUserId}
+          onClose={() => setShowCardComposer(false)}
+        />
+      )}
     </>
   );
 }
