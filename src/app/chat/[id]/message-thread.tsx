@@ -1,13 +1,20 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import Image from "next/image";
 import { createClient } from "@/lib/supabase/client";
 
 type Message = {
   id: string;
   sender_id: string;
   content: string | null;
+  attachment_url: string | null;
+  attachment_type: string | null;
   created_at: string;
+};
+
+type PendingUpload = {
+  filename: string;
 };
 
 export default function MessageThread({
@@ -21,7 +28,10 @@ export default function MessageThread({
   const [messages, setMessages] = useState<Message[]>([]);
   const [text, setText] = useState("");
   const [sending, setSending] = useState(false);
+  const [pending, setPending] = useState<PendingUpload | null>(null);
+  const [uploadError, setUploadError] = useState<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     let active = true;
@@ -29,11 +39,13 @@ export default function MessageThread({
     async function load() {
       const { data } = await supabase
         .from("messages")
-        .select("id, sender_id, content, created_at")
+        .select(
+          "id, sender_id, content, attachment_url, attachment_type, created_at"
+        )
         .eq("conversation_id", conversationId)
         .order("created_at", { ascending: true });
 
-      if (active && data) setMessages(data);
+      if (active && data) setMessages(data as Message[]);
     }
 
     load();
@@ -68,7 +80,7 @@ export default function MessageThread({
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages.length]);
 
-  async function handleSend(e: React.FormEvent) {
+  async function handleSendText(e: React.FormEvent) {
     e.preventDefault();
     if (!text.trim() || sending) return;
 
@@ -89,6 +101,64 @@ export default function MessageThread({
     setSending(false);
   }
 
+  async function handleFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    // reset input so picking the same file again works
+    if (fileInputRef.current) fileInputRef.current.value = "";
+
+    setUploadError(null);
+    setPending({ filename: file.name });
+
+    try {
+      // 1. Get signed upload payload
+      const signRes = await fetch("/api/upload/sign", { method: "POST" });
+      if (!signRes.ok) throw new Error("Could not get upload signature");
+      const { timestamp, folder, signature, apiKey, cloudName } =
+        await signRes.json();
+
+      // 2. Upload to Cloudinary
+      const formData = new FormData();
+      formData.append("file", file);
+      formData.append("api_key", apiKey);
+      formData.append("timestamp", String(timestamp));
+      formData.append("folder", folder);
+      formData.append("signature", signature);
+
+      const uploadRes = await fetch(
+        `https://api.cloudinary.com/v1_1/${cloudName}/auto/upload`,
+        { method: "POST", body: formData }
+      );
+      if (!uploadRes.ok) throw new Error("Upload failed");
+      const data = await uploadRes.json();
+
+      const secureUrl: string = data.secure_url;
+      const resourceType: string = data.resource_type; // "image" | "video" | "raw"
+      const format: string = data.format ?? "";
+
+      // Map to our attachment_type
+      let attachmentType = "file";
+      if (resourceType === "image") attachmentType = "image";
+      else if (resourceType === "video") attachmentType = "video";
+
+      // 3. Insert message with attachment
+      const { error: insertErr } = await supabase.from("messages").insert({
+        conversation_id: conversationId,
+        sender_id: currentUserId,
+        content: null,
+        attachment_url: secureUrl,
+        attachment_type: attachmentType
+      });
+
+      if (insertErr) throw insertErr;
+    } catch (err: any) {
+      setUploadError(err.message ?? "Upload failed");
+    } finally {
+      setPending(null);
+    }
+  }
+
   return (
     <>
       <div className="flex-1 overflow-y-auto px-4 py-4">
@@ -107,13 +177,46 @@ export default function MessageThread({
                 className={`flex ${mine ? "justify-end" : "justify-start"}`}
               >
                 <div
-                  className={`max-w-[75%] rounded-2xl px-4 py-2 text-sm ${
-                    mine
-                      ? "bg-g1-accent text-white"
-                      : "bg-g1-surface text-g1-text"
+                  className={`max-w-[75%] overflow-hidden rounded-2xl ${
+                    mine ? "bg-g1-accent text-white" : "bg-g1-surface"
                   }`}
                 >
-                  {m.content}
+                  {m.attachment_url && m.attachment_type === "image" && (
+                    <a
+                      href={m.attachment_url}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      <img
+                        src={m.attachment_url}
+                        alt="attachment"
+                        className="block max-h-72 w-full object-cover"
+                      />
+                    </a>
+                  )}
+
+                  {m.attachment_url && m.attachment_type === "video" && (
+                    <video
+                      src={m.attachment_url}
+                      controls
+                      className="block max-h-72 w-full"
+                    />
+                  )}
+
+                  {m.attachment_url && m.attachment_type === "file" && (
+                    <a
+                      href={m.attachment_url}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="block px-4 py-3 text-sm underline"
+                    >
+                      📎 Download file
+                    </a>
+                  )}
+
+                  {m.content && (
+                    <p className="px-4 py-2 text-sm break-words">{m.content}</p>
+                  )}
                 </div>
               </li>
             );
@@ -122,10 +225,39 @@ export default function MessageThread({
         <div ref={bottomRef} />
       </div>
 
+      {pending && (
+        <div className="border-t border-g1-border px-4 py-2 text-xs text-g1-muted">
+          Uploading {pending.filename}…
+        </div>
+      )}
+
+      {uploadError && (
+        <div className="border-t border-red-500/30 bg-red-500/10 px-4 py-2 text-xs text-red-400">
+          {uploadError}
+        </div>
+      )}
+
       <form
-        onSubmit={handleSend}
-        className="flex gap-2 border-t border-g1-border px-4 py-3"
+        onSubmit={handleSendText}
+        className="flex items-center gap-2 border-t border-g1-border px-4 py-3"
       >
+        <button
+          type="button"
+          onClick={() => fileInputRef.current?.click()}
+          disabled={!!pending}
+          className="rounded-lg border border-g1-border bg-g1-surface px-3 py-2 text-sm disabled:opacity-50"
+          aria-label="Attach"
+        >
+          📎
+        </button>
+        <input
+          ref={fileInputRef}
+          type="file"
+          onChange={handleFile}
+          accept="image/*,video/*,application/pdf,.doc,.docx,.txt,.zip"
+          className="hidden"
+        />
+
         <input
           value={text}
           onChange={(e) => setText(e.target.value)}
