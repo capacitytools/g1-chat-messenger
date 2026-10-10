@@ -39,6 +39,8 @@ export default function MessageThread({
 }) {
   const supabase = createClient();
   const [messages, setMessages] = useState<Message[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [text, setText] = useState("");
   const [sending, setSending] = useState(false);
   const [pending, setPending] = useState<PendingUpload | null>(null);
@@ -49,9 +51,29 @@ export default function MessageThread({
 
   useEffect(() => {
     let active = true;
+    let channel: any = null;
 
-    async function load() {
-      const { data } = await supabase
+    async function init() {
+      // Wait for the auth session to be fully loaded
+      const {
+        data: { session }
+      } = await supabase.auth.getSession();
+
+      if (!session) {
+        // Give the client a moment, then retry once
+        await new Promise((r) => setTimeout(r, 500));
+        const retry = await supabase.auth.getSession();
+        if (!retry.data.session) {
+          if (active) {
+            setLoadError("Not signed in");
+            setLoading(false);
+          }
+          return;
+        }
+      }
+
+      // Now safe to load
+      const { data, error } = await supabase
         .from("messages")
         .select(
           "id, sender_id, content, attachment_url, attachment_type, metadata, created_at"
@@ -59,34 +81,46 @@ export default function MessageThread({
         .eq("conversation_id", conversationId)
         .order("created_at", { ascending: true });
 
-      if (active && data) setMessages(data as Message[]);
+      if (error) {
+        if (active) {
+          setLoadError(error.message);
+          setLoading(false);
+        }
+        return;
+      }
+
+      if (active) {
+        setMessages((data ?? []) as Message[]);
+        setLoading(false);
+      }
+
+      // Subscribe AFTER initial load
+      channel = supabase
+        .channel(`messages-${conversationId}`)
+        .on(
+          "postgres_changes",
+          {
+            event: "INSERT",
+            schema: "public",
+            table: "messages",
+            filter: `conversation_id=eq.${conversationId}`
+          },
+          (payload) => {
+            setMessages((prev) => {
+              const next = payload.new as Message;
+              if (prev.some((m) => m.id === next.id)) return prev;
+              return [...prev, next];
+            });
+          }
+        )
+        .subscribe();
     }
 
-    load();
-
-    const channel = supabase
-      .channel(`messages-${conversationId}`)
-      .on(
-        "postgres_changes",
-        {
-          event: "INSERT",
-          schema: "public",
-          table: "messages",
-          filter: `conversation_id=eq.${conversationId}`
-        },
-        (payload) => {
-          setMessages((prev) => {
-            const next = payload.new as Message;
-            if (prev.some((m) => m.id === next.id)) return prev;
-            return [...prev, next];
-          });
-        }
-      )
-      .subscribe();
+    init();
 
     return () => {
       active = false;
-      supabase.removeChannel(channel);
+      if (channel) supabase.removeChannel(channel);
     };
   }, [conversationId, supabase]);
 
@@ -170,7 +204,17 @@ export default function MessageThread({
   return (
     <>
       <div className="flex-1 overflow-y-auto px-4 py-4">
-        {messages.length === 0 && (
+        {loading && (
+          <p className="text-center text-xs text-g1-muted">Loading…</p>
+        )}
+
+        {loadError && (
+          <p className="text-center text-xs text-red-400">
+            Could not load messages: {loadError}
+          </p>
+        )}
+
+        {!loading && !loadError && messages.length === 0 && (
           <p className="text-center text-xs text-g1-muted">
             No messages yet. Say hi.
           </p>
