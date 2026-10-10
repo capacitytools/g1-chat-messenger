@@ -1,8 +1,8 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import Image from "next/image";
 import { createClient } from "@/lib/supabase/client";
+import G1Card from "./g1-card";
 
 type Message = {
   id: string;
@@ -10,12 +10,24 @@ type Message = {
   content: string | null;
   attachment_url: string | null;
   attachment_type: string | null;
+  metadata: Record<string, any> | null;
   created_at: string;
 };
 
-type PendingUpload = {
-  filename: string;
-};
+type PendingUpload = { filename: string };
+
+function pickCloudinaryEndpoint(file: File): {
+  endpoint: string;
+  attachmentType: "image" | "video" | "file";
+} {
+  if (file.type.startsWith("image/")) {
+    return { endpoint: "image", attachmentType: "image" };
+  }
+  if (file.type.startsWith("video/")) {
+    return { endpoint: "video", attachmentType: "video" };
+  }
+  return { endpoint: "raw", attachmentType: "file" };
+}
 
 export default function MessageThread({
   conversationId,
@@ -40,7 +52,7 @@ export default function MessageThread({
       const { data } = await supabase
         .from("messages")
         .select(
-          "id, sender_id, content, attachment_url, attachment_type, created_at"
+          "id, sender_id, content, attachment_url, attachment_type, metadata, created_at"
         )
         .eq("conversation_id", conversationId)
         .order("created_at", { ascending: true });
@@ -105,20 +117,19 @@ export default function MessageThread({
     const file = e.target.files?.[0];
     if (!file) return;
 
-    // reset input so picking the same file again works
     if (fileInputRef.current) fileInputRef.current.value = "";
 
     setUploadError(null);
     setPending({ filename: file.name });
 
     try {
-      // 1. Get signed upload payload
       const signRes = await fetch("/api/upload/sign", { method: "POST" });
       if (!signRes.ok) throw new Error("Could not get upload signature");
       const { timestamp, folder, signature, apiKey, cloudName } =
         await signRes.json();
 
-      // 2. Upload to Cloudinary
+      const { endpoint, attachmentType } = pickCloudinaryEndpoint(file);
+
       const formData = new FormData();
       formData.append("file", file);
       formData.append("api_key", apiKey);
@@ -127,22 +138,17 @@ export default function MessageThread({
       formData.append("signature", signature);
 
       const uploadRes = await fetch(
-        `https://api.cloudinary.com/v1_1/${cloudName}/auto/upload`,
+        `https://api.cloudinary.com/v1_1/${cloudName}/${endpoint}/upload`,
         { method: "POST", body: formData }
       );
-      if (!uploadRes.ok) throw new Error("Upload failed");
+
       const data = await uploadRes.json();
+      if (!uploadRes.ok || data.error) {
+        throw new Error(data?.error?.message ?? "Upload failed");
+      }
 
       const secureUrl: string = data.secure_url;
-      const resourceType: string = data.resource_type; // "image" | "video" | "raw"
-      const format: string = data.format ?? "";
 
-      // Map to our attachment_type
-      let attachmentType = "file";
-      if (resourceType === "image") attachmentType = "image";
-      else if (resourceType === "video") attachmentType = "video";
-
-      // 3. Insert message with attachment
       const { error: insertErr } = await supabase.from("messages").insert({
         conversation_id: conversationId,
         sender_id: currentUserId,
@@ -171,51 +177,65 @@ export default function MessageThread({
         <ul className="space-y-2">
           {messages.map((m) => {
             const mine = m.sender_id === currentUserId;
+            const isCard = !!m.metadata?.kind;
+
             return (
               <li
                 key={m.id}
                 className={`flex ${mine ? "justify-end" : "justify-start"}`}
               >
                 <div
-                  className={`max-w-[75%] overflow-hidden rounded-2xl ${
-                    mine ? "bg-g1-accent text-white" : "bg-g1-surface"
+                  className={`max-w-[85%] overflow-hidden rounded-2xl ${
+                    isCard
+                      ? "bg-transparent"
+                      : mine
+                        ? "bg-g1-accent text-white"
+                        : "bg-g1-surface"
                   }`}
                 >
-                  {m.attachment_url && m.attachment_type === "image" && (
-                    <a
-                      href={m.attachment_url}
-                      target="_blank"
-                      rel="noreferrer"
-                    >
-                      <img
-                        src={m.attachment_url}
-                        alt="attachment"
-                        className="block max-h-72 w-full object-cover"
-                      />
-                    </a>
-                  )}
+                  {isCard ? (
+                    <G1Card metadata={m.metadata!} mine={mine} />
+                  ) : (
+                    <>
+                      {m.attachment_url && m.attachment_type === "image" && (
+                        <a
+                          href={m.attachment_url}
+                          target="_blank"
+                          rel="noreferrer"
+                        >
+                          <img
+                            src={m.attachment_url}
+                            alt="attachment"
+                            className="block max-h-72 w-full object-cover"
+                          />
+                        </a>
+                      )}
 
-                  {m.attachment_url && m.attachment_type === "video" && (
-                    <video
-                      src={m.attachment_url}
-                      controls
-                      className="block max-h-72 w-full"
-                    />
-                  )}
+                      {m.attachment_url && m.attachment_type === "video" && (
+                        <video
+                          src={m.attachment_url}
+                          controls
+                          className="block max-h-72 w-full"
+                        />
+                      )}
 
-                  {m.attachment_url && m.attachment_type === "file" && (
-                    <a
-                      href={m.attachment_url}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="block px-4 py-3 text-sm underline"
-                    >
-                      📎 Download file
-                    </a>
-                  )}
+                      {m.attachment_url && m.attachment_type === "file" && (
+                        <a
+                          href={m.attachment_url}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="block px-4 py-3 text-sm underline"
+                        >
+                          📎 Download file
+                        </a>
+                      )}
 
-                  {m.content && (
-                    <p className="px-4 py-2 text-sm break-words">{m.content}</p>
+                      {m.content && (
+                        <p className="px-4 py-2 text-sm break-words">
+                          {m.content}
+                        </p>
+                      )}
+                    </>
                   )}
                 </div>
               </li>
