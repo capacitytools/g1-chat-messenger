@@ -2,13 +2,29 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import Image from "next/image";
 import { createClient } from "@/lib/supabase/client";
 
 type Row = {
   conversation_id: string;
   other_username: string | null;
+  other_avatar: string | null;
   last_message_at: string;
+  last_message_preview: string | null;
+  unread_count: number;
 };
+
+function formatRelative(iso: string): string {
+  const d = new Date(iso);
+  const now = new Date();
+  const diff = (now.getTime() - d.getTime()) / 1000; // seconds
+
+  if (diff < 60) return "now";
+  if (diff < 3600) return `${Math.floor(diff / 60)}m`;
+  if (diff < 86400) return `${Math.floor(diff / 3600)}h`;
+  if (diff < 172800) return "Yesterday";
+  return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+}
 
 export default function ConversationList({
   currentUserId
@@ -23,13 +39,14 @@ export default function ConversationList({
     let active = true;
 
     async function load() {
-      const { data: myConvs, error: convErr } = await supabase
+      // 1. My conversations
+      const { data: myConvs, error: myErr } = await supabase
         .from("conversation_participants")
-        .select("conversation_id")
+        .select("conversation_id, last_read_at")
         .eq("user_id", currentUserId);
 
-      if (convErr) {
-        console.error(convErr);
+      if (myErr) {
+        console.error(myErr);
         if (active) setLoading(false);
         return;
       }
@@ -43,12 +60,14 @@ export default function ConversationList({
         return;
       }
 
+      // 2. Conversations
       const { data: convs } = await supabase
         .from("conversations")
         .select("id, last_message_at")
         .in("id", ids)
         .order("last_message_at", { ascending: false });
 
+      // 3. Other participants
       const { data: others } = await supabase
         .from("conversation_participants")
         .select("conversation_id, user_id")
@@ -61,41 +80,108 @@ export default function ConversationList({
 
       const { data: profiles } = await supabase
         .from("profiles")
-        .select("id, username")
-        .in("id", otherUserIds.length ? otherUserIds : ["00000000-0000-0000-0000-000000000000"]);
+        .select("id, username, avatar_url")
+        .in(
+          "id",
+          otherUserIds.length
+            ? otherUserIds
+            : ["00000000-0000-0000-0000-000000000000"]
+        );
 
-      const idToUsername = new Map<string, string>();
-      (profiles ?? []).forEach((p) => idToUsername.set(p.id, p.username));
+      const idToProfile = new Map<
+        string,
+        { username: string; avatar_url: string | null }
+      >();
+      (profiles ?? []).forEach((p) =>
+        idToProfile.set(p.id, {
+          username: p.username,
+          avatar_url: p.avatar_url
+        })
+      );
 
-      const convToOtherUsername = new Map<string, string>();
+      const convToOther = new Map<
+        string,
+        { username: string; avatar_url: string | null }
+      >();
       (others ?? []).forEach((o) => {
-        const uname = idToUsername.get(o.user_id);
-        if (uname) convToOtherUsername.set(o.conversation_id, uname);
+        const prof = idToProfile.get(o.user_id);
+        if (prof) convToOther.set(o.conversation_id, prof);
       });
 
-      if (!active) return;
-      setRows(
-        (convs ?? []).map((c) => ({
-          conversation_id: c.id,
-          other_username: convToOtherUsername.get(c.id) ?? null,
-          last_message_at: c.last_message_at
-        }))
+      // 4. Last message per conversation
+      const lastMessageByConv = new Map<
+        string,
+        { content: string | null; created_at: string; sender_id: string }
+      >();
+
+      for (const cid of ids) {
+        const { data: last } = await supabase
+          .from("messages")
+          .select("content, created_at, sender_id, attachment_type")
+          .eq("conversation_id", cid)
+          .order("created_at", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+
+        if (last) {
+          lastMessageByConv.set(cid, {
+            content: last.content ?? (last.attachment_type ? "📎 Attachment" : ""),
+            created_at: last.created_at,
+            sender_id: last.sender_id
+          });
+        }
+      }
+
+      // 5. Unread counts
+      const lastReadByConv = new Map<string, string>();
+      (myConvs ?? []).forEach((c) =>
+        lastReadByConv.set(c.conversation_id, c.last_read_at ?? "1970-01-01")
       );
+
+      const unreadCounts = new Map<string, number>();
+      for (const cid of ids) {
+        const lastRead = lastReadByConv.get(cid)!;
+        const { count } = await supabase
+          .from("messages")
+          .select("id", { count: "exact", head: true })
+          .eq("conversation_id", cid)
+          .neq("sender_id", currentUserId)
+          .gt("created_at", lastRead);
+
+        unreadCounts.set(cid, count ?? 0);
+      }
+
+      if (!active) return;
+
+      const built: Row[] = (convs ?? []).map((c) => {
+        const other = convToOther.get(c.id);
+        const last = lastMessageByConv.get(c.id);
+        return {
+          conversation_id: c.id,
+          other_username: other?.username ?? null,
+          other_avatar: other?.avatar_url ?? null,
+          last_message_at: last?.created_at ?? c.last_message_at,
+          last_message_preview: last?.content ?? null,
+          unread_count: unreadCounts.get(c.id) ?? 0
+        };
+      });
+
+      setRows(built);
       setLoading(false);
     }
 
     load();
 
     const channel = supabase
-      .channel("conversations-list")
+      .channel("conversation-list-live")
       .on(
         "postgres_changes",
-        { event: "*", schema: "public", table: "conversations" },
+        { event: "*", schema: "public", table: "messages" },
         () => load()
       )
       .on(
         "postgres_changes",
-        { event: "INSERT", schema: "public", table: "messages" },
+        { event: "*", schema: "public", table: "conversations" },
         () => load()
       )
       .subscribe();
@@ -121,19 +207,50 @@ export default function ConversationList({
   }
 
   return (
-    <ul className="space-y-2">
+    <ul className="space-y-1">
       {rows.map((r) => (
         <li key={r.conversation_id}>
           <Link
             href={`/chat/${r.conversation_id}`}
-            className="flex items-center justify-between rounded-xl border border-g1-border bg-g1-surface px-4 py-3"
+            className="flex items-center gap-3 rounded-xl border border-g1-border bg-g1-surface px-3 py-3 hover:border-g1-accent/40"
           >
-            <span className="text-sm font-medium">
-              @{r.other_username ?? "unknown"}
-            </span>
-            <span className="text-xs text-g1-muted">
-              {new Date(r.last_message_at).toLocaleDateString()}
-            </span>
+            {/* Avatar */}
+            <div className="relative h-11 w-11 flex-shrink-0 overflow-hidden rounded-full bg-g1-bg">
+              {r.other_avatar ? (
+                <Image
+                  src={r.other_avatar}
+                  alt={r.other_username ?? "avatar"}
+                  fill
+                  className="object-cover"
+                />
+              ) : (
+                <div className="flex h-full w-full items-center justify-center text-sm font-medium text-g1-muted">
+                  {(r.other_username?.[0] ?? "?").toUpperCase()}
+                </div>
+              )}
+            </div>
+
+            {/* Name + preview */}
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center justify-between gap-2">
+                <p className="truncate text-sm font-medium">
+                  @{r.other_username ?? "unknown"}
+                </p>
+                <span className="flex-shrink-0 text-[10px] text-g1-muted">
+                  {formatRelative(r.last_message_at)}
+                </span>
+              </div>
+              <div className="mt-0.5 flex items-center justify-between gap-2">
+                <p className="truncate text-xs text-g1-muted">
+                  {r.last_message_preview ?? "No messages yet"}
+                </p>
+                {r.unread_count > 0 && (
+                  <span className="flex-shrink-0 rounded-full bg-g1-accent px-2 py-0.5 text-[10px] font-medium text-white">
+                    {r.unread_count}
+                  </span>
+                )}
+              </div>
+            </div>
           </Link>
         </li>
       ))}
