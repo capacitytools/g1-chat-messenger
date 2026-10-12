@@ -48,29 +48,23 @@ export default function MessageThread({
   const [showCardComposer, setShowCardComposer] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const lastReadRef = useRef<string>("1970-01-01");
 
-  // Mark as read on mount
-  useEffect(() => {
-    async function markRead() {
-      await supabase
-        .from("conversation_participants")
-        .update({ last_read_at: new Date().toISOString() })
-        .eq("conversation_id", conversationId)
-        .eq("user_id", currentUserId);
-    }
-    markRead();
-  }, [conversationId, currentUserId, supabase]);
-
-  // Mark read whenever new messages arrive
-  useEffect(() => {
-    if (messages.length === 0) return;
-    supabase
+  // Mark as read helper — writes last_read_at
+  async function markRead() {
+    const now = new Date().toISOString();
+    lastReadRef.current = now;
+    await supabase
       .from("conversation_participants")
-      .update({ last_read_at: new Date().toISOString() })
+      .update({ last_read_at: now })
       .eq("conversation_id", conversationId)
-      .eq("user_id", currentUserId)
-      .then(() => {});
-  }, [messages.length, conversationId, currentUserId, supabase]);
+      .eq("user_id", currentUserId);
+  }
+
+  useEffect(() => {
+    markRead();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [conversationId, currentUserId]);
 
   useEffect(() => {
     let active = true;
@@ -112,6 +106,8 @@ export default function MessageThread({
       if (active) {
         setMessages((data ?? []) as Message[]);
         setLoading(false);
+        // ensure read after initial load too
+        markRead();
       }
 
       channel = supabase
@@ -125,11 +121,15 @@ export default function MessageThread({
             filter: `conversation_id=eq.${conversationId}`
           },
           (payload) => {
+            const next = payload.new as Message;
             setMessages((prev) => {
-              const next = payload.new as Message;
               if (prev.some((m) => m.id === next.id)) return prev;
               return [...prev, next];
             });
+            // If the new message is from the other user, mark read immediately
+            if (next.sender_id !== currentUserId) {
+              markRead();
+            }
           }
         )
         .subscribe();
@@ -141,6 +141,7 @@ export default function MessageThread({
       active = false;
       if (channel) supabase.removeChannel(channel);
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [conversationId, supabase]);
 
   useEffect(() => {
