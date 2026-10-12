@@ -49,18 +49,39 @@ export default function MessageThread({
   const bottomRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // Mark as read on mount
+  useEffect(() => {
+    async function markRead() {
+      await supabase
+        .from("conversation_participants")
+        .update({ last_read_at: new Date().toISOString() })
+        .eq("conversation_id", conversationId)
+        .eq("user_id", currentUserId);
+    }
+    markRead();
+  }, [conversationId, currentUserId, supabase]);
+
+  // Mark read whenever new messages arrive
+  useEffect(() => {
+    if (messages.length === 0) return;
+    supabase
+      .from("conversation_participants")
+      .update({ last_read_at: new Date().toISOString() })
+      .eq("conversation_id", conversationId)
+      .eq("user_id", currentUserId)
+      .then(() => {});
+  }, [messages.length, conversationId, currentUserId, supabase]);
+
   useEffect(() => {
     let active = true;
     let channel: any = null;
 
     async function init() {
-      // Wait for the auth session to be fully loaded
       const {
         data: { session }
       } = await supabase.auth.getSession();
 
       if (!session) {
-        // Give the client a moment, then retry once
         await new Promise((r) => setTimeout(r, 500));
         const retry = await supabase.auth.getSession();
         if (!retry.data.session) {
@@ -72,7 +93,6 @@ export default function MessageThread({
         }
       }
 
-      // Now safe to load
       const { data, error } = await supabase
         .from("messages")
         .select(
@@ -94,7 +114,6 @@ export default function MessageThread({
         setLoading(false);
       }
 
-      // Subscribe AFTER initial load
       channel = supabase
         .channel(`messages-${conversationId}`)
         .on(
