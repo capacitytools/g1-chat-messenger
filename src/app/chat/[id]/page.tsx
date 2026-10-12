@@ -2,6 +2,8 @@ import { redirect, notFound } from "next/navigation";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import MessageThread from "./message-thread";
+import { ToastProvider } from "../toast";
+import NotificationWatcher from "../notification-watcher";
 
 export default async function ConversationPage({
   params
@@ -39,20 +41,27 @@ export default async function ConversationPage({
   }
 
   return (
-    <main className="flex h-screen flex-col">
-      <header className="flex items-center gap-3 border-b border-g1-border px-4 py-3">
-        <Link href="/chat" className="text-g1-muted">
-          ←
-        </Link>
-        <div>
-          <p className="text-sm font-medium">@{otherUsername}</p>
-        </div>
-      </header>
-
-      <MessageThread
-        conversationId={params.id}
+    <ToastProvider>
+      <NotificationWatcher
         currentUserId={user.id}
+        currentConversationId={params.id}
       />
-    </main>
+
+      <main className="flex h-screen flex-col">
+        <header className="flex items-center gap-3 border-b border-g1-border px-4 py-3">
+          <Link href="/chat" className="text-g1-muted">
+            ←
+          </Link>
+          <div>
+            <p className="text-sm font-medium">@{otherUsername}</p>
+          </div>
+        </header>
+
+        <MessageThread
+          conversationId={params.id}
+          currentUserId={user.id}
+        />
+      </main>
+    </ToastProvider>
   );
 }
