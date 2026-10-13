@@ -3,6 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import Image from "next/image";
+import ConvertToJobRoom from "./convert-to-job-room";
 
 type Member = {
   id: string;
@@ -15,15 +16,18 @@ export default function GroupHeader({
   title,
   memberCount,
   members,
-  currentUserId
+  currentUserId,
+  jobRoom
 }: {
   conversationId: string;
   title: string;
   memberCount: number;
   members: Member[];
   currentUserId: string;
+  jobRoom?: { company_name: string; is_verified: boolean } | null;
 }) {
   const [open, setOpen] = useState(false);
+  const [showConvert, setShowConvert] = useState(false);
 
   return (
     <>
@@ -35,13 +39,23 @@ export default function GroupHeader({
           onClick={() => setOpen(true)}
           className="flex flex-1 items-center gap-3 text-left"
         >
-          <div className="flex h-9 w-9 items-center justify-center rounded-full bg-g1-accent/20 text-sm font-medium">
+          <div
+            className={`flex h-9 w-9 items-center justify-center rounded-full text-sm font-medium ${
+              jobRoom
+                ? "bg-g1-accent text-white"
+                : "bg-g1-accent/20 text-g1-text"
+            }`}
+          >
             {title[0]?.toUpperCase() ?? "#"}
           </div>
-          <div>
-            <p className="text-sm font-medium">👥 {title}</p>
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-sm font-medium">
+              {jobRoom ? "💼 " : "👥 "}
+              {title}
+            </p>
             <p className="text-[10px] text-g1-muted">
               {memberCount} members
+              {jobRoom ? " · Job room" : ""}
             </p>
           </div>
         </button>
@@ -65,6 +79,34 @@ export default function GroupHeader({
                 ✕
               </button>
             </div>
+
+            {jobRoom && (
+              <div className="mb-4 rounded-lg border border-g1-accent/40 bg-g1-accent/5 p-3">
+                <p className="text-[10px] uppercase tracking-wide text-g1-accent">
+                  Job Room
+                </p>
+                <p className="mt-1 text-sm font-medium">
+                  {jobRoom.company_name}
+                </p>
+                {jobRoom.is_verified && (
+                  <p className="mt-1 text-[10px] text-green-400">
+                    ✓ Verified employer
+                  </p>
+                )}
+              </div>
+            )}
+
+            {!jobRoom && (
+              <button
+                onClick={() => {
+                  setOpen(false);
+                  setShowConvert(true);
+                }}
+                className="mb-4 w-full rounded-lg border border-g1-accent bg-g1-accent/10 py-2 text-xs font-medium text-g1-accent"
+              >
+                💼 Turn into job room
+              </button>
+            )}
 
             <p className="mb-2 text-xs uppercase tracking-wide text-g1-muted">
               {memberCount} members
@@ -109,6 +151,13 @@ export default function GroupHeader({
             </p>
           </div>
         </div>
+      )}
+
+      {showConvert && (
+        <ConvertToJobRoom
+          conversationId={conversationId}
+          onClose={() => setShowConvert(false)}
+        />
       )}
     </>
   );
