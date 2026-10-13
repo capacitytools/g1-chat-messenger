@@ -15,6 +15,6 @@ export async function POST(req: Request) {
       ? envSecret.slice(0, 4) + "..." + envSecret.slice(-4)
       : null,
     match: receivedSecret === envSecret,
-    headers: Object.fromEntries(req.headers.entries())
+    matchFirst16: (receivedSecret ?? "").slice(0, 16) === (envSecret ?? "").slice(0, 16)
   });
 }
