@@ -32,13 +32,16 @@ function pickCloudinaryEndpoint(file: File): {
 
 export default function MessageThread({
   conversationId,
-  currentUserId
+  currentUserId,
+  showSenderNames = false
 }: {
   conversationId: string;
   currentUserId: string;
+  showSenderNames?: boolean;
 }) {
   const supabase = createClient();
   const [messages, setMessages] = useState<Message[]>([]);
+  const [senders, setSenders] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [text, setText] = useState("");
@@ -48,17 +51,26 @@ export default function MessageThread({
   const [showCardComposer, setShowCardComposer] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const lastReadRef = useRef<string>("1970-01-01");
 
-  // Mark as read helper — writes last_read_at
   async function markRead() {
     const now = new Date().toISOString();
-    lastReadRef.current = now;
     await supabase
       .from("conversation_participants")
       .update({ last_read_at: now })
       .eq("conversation_id", conversationId)
       .eq("user_id", currentUserId);
+  }
+
+  async function loadSenders(ids: string[]) {
+    const unique = Array.from(new Set(ids));
+    if (!unique.length) return;
+    const { data } = await supabase
+      .from("profiles")
+      .select("id, username")
+      .in("id", unique);
+    const map: Record<string, string> = {};
+    (data ?? []).forEach((p) => (map[p.id] = p.username));
+    setSenders((prev) => ({ ...prev, ...map }));
   }
 
   useEffect(() => {
@@ -71,11 +83,8 @@ export default function MessageThread({
     let channel: any = null;
 
     async function init() {
-      const {
-        data: { session }
-      } = await supabase.auth.getSession();
-
-      if (!session) {
+      const { data: sessionData } = await supabase.auth.getSession();
+      if (!sessionData.session) {
         await new Promise((r) => setTimeout(r, 500));
         const retry = await supabase.auth.getSession();
         if (!retry.data.session) {
@@ -103,10 +112,11 @@ export default function MessageThread({
         return;
       }
 
+      const loaded = (data ?? []) as Message[];
       if (active) {
-        setMessages((data ?? []) as Message[]);
+        setMessages(loaded);
         setLoading(false);
-        // ensure read after initial load too
+        loadSenders(loaded.map((m) => m.sender_id));
         markRead();
       }
 
@@ -126,10 +136,8 @@ export default function MessageThread({
               if (prev.some((m) => m.id === next.id)) return prev;
               return [...prev, next];
             });
-            // If the new message is from the other user, mark read immediately
-            if (next.sender_id !== currentUserId) {
-              markRead();
-            }
+            loadSenders([next.sender_id]);
+            if (next.sender_id !== currentUserId) markRead();
           }
         )
         .subscribe();
@@ -151,7 +159,6 @@ export default function MessageThread({
   async function handleSendText(e: React.FormEvent) {
     e.preventDefault();
     if (!text.trim() || sending) return;
-
     setSending(true);
     const body = text.trim();
     setText("");
@@ -172,7 +179,6 @@ export default function MessageThread({
   async function handleFile(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
-
     if (fileInputRef.current) fileInputRef.current.value = "";
 
     setUploadError(null);
@@ -227,20 +233,18 @@ export default function MessageThread({
         {loading && (
           <p className="text-center text-xs text-g1-muted">Loading…</p>
         )}
-
         {loadError && (
           <p className="text-center text-xs text-red-400">
             Could not load messages: {loadError}
           </p>
         )}
-
         {!loading && !loadError && messages.length === 0 && (
           <p className="text-center text-xs text-g1-muted">
             No messages yet. Say hi.
           </p>
         )}
 
-        <ul className="space-y-2">
+        <ul className="space-y-3">
           {messages.map((m) => {
             const mine = m.sender_id === currentUserId;
             const isCard = !!m.metadata?.kind;
@@ -248,132 +252,14 @@ export default function MessageThread({
             return (
               <li
                 key={m.id}
-                className={`flex ${mine ? "justify-end" : "justify-start"}`}
+                className={`flex flex-col ${
+                  mine ? "items-end" : "items-start"
+                }`}
               >
+                {showSenderNames && !mine && (
+                  <p className="mb-0.5 px-1 text-[10px] text-g1-muted">
+                    @{senders[m.sender_id] ?? "unknown"}
+                  </p>
+                )}
+
                 <div
-                  className={`max-w-[85%] overflow-hidden rounded-2xl ${
-                    isCard
-                      ? "bg-transparent"
-                      : mine
-                        ? "bg-g1-accent text-white"
-                        : "bg-g1-surface"
-                  }`}
-                >
-                  {isCard ? (
-                    <G1Card metadata={m.metadata as any} mine={mine} />
-                  ) : (
-                    <>
-                      {m.attachment_url && m.attachment_type === "image" && (
-                        <a
-                          href={m.attachment_url}
-                          target="_blank"
-                          rel="noreferrer"
-                        >
-                          <img
-                            src={m.attachment_url}
-                            alt="attachment"
-                            className="block max-h-72 w-full object-cover"
-                          />
-                        </a>
-                      )}
-
-                      {m.attachment_url && m.attachment_type === "video" && (
-                        <video
-                          src={m.attachment_url}
-                          controls
-                          className="block max-h-72 w-full"
-                        />
-                      )}
-
-                      {m.attachment_url && m.attachment_type === "file" && (
-                        <a
-                          href={m.attachment_url}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="block px-4 py-3 text-sm underline"
-                        >
-                          📎 Download file
-                        </a>
-                      )}
-
-                      {m.content && (
-                        <p className="px-4 py-2 text-sm break-words">
-                          {m.content}
-                        </p>
-                      )}
-                    </>
-                  )}
-                </div>
-              </li>
-            );
-          })}
-        </ul>
-        <div ref={bottomRef} />
-      </div>
-
-      {pending && (
-        <div className="border-t border-g1-border px-4 py-2 text-xs text-g1-muted">
-          Uploading {pending.filename}…
-        </div>
-      )}
-
-      {uploadError && (
-        <div className="border-t border-red-500/30 bg-red-500/10 px-4 py-2 text-xs text-red-400">
-          {uploadError}
-        </div>
-      )}
-
-      <form
-        onSubmit={handleSendText}
-        className="flex items-center gap-2 border-t border-g1-border px-4 py-3"
-      >
-        <button
-          type="button"
-          onClick={() => setShowCardComposer(true)}
-          className="rounded-lg border border-g1-border bg-g1-surface px-3 py-2 text-sm"
-          aria-label="Send G1 card"
-        >
-          ✨
-        </button>
-        <button
-          type="button"
-          onClick={() => fileInputRef.current?.click()}
-          disabled={!!pending}
-          className="rounded-lg border border-g1-border bg-g1-surface px-3 py-2 text-sm disabled:opacity-50"
-          aria-label="Attach"
-        >
-          📎
-        </button>
-        <input
-          ref={fileInputRef}
-          type="file"
-          onChange={handleFile}
-          accept="image/*,video/*,application/pdf,.doc,.docx,.txt,.zip"
-          className="hidden"
-        />
-
-        <input
-          value={text}
-          onChange={(e) => setText(e.target.value)}
-          placeholder="Message"
-          className="flex-1 rounded-lg border border-g1-border bg-g1-surface px-3 py-2 text-sm outline-none focus:border-g1-accent"
-        />
-        <button
-          type="submit"
-          disabled={sending || !text.trim()}
-          className="rounded-lg bg-g1-accent px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
-        >
-          Send
-        </button>
-      </form>
-
-      {showCardComposer && (
-        <CardComposer
-          conversationId={conversationId}
-          currentUserId={currentUserId}
-          onClose={() => setShowCardComposer(false)}
-        />
-      )}
-    </>
-  );
-}
