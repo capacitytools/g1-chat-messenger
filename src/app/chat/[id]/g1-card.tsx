@@ -1,5 +1,7 @@
 "use client";
 
+import Link from "next/link";
+
 type WalletMeta = {
   kind: "wallet";
   action: "payment_request" | "payment_sent" | "receipt";
@@ -19,12 +21,27 @@ type MarketMeta = {
   url?: string;
 };
 
+type JobPostingMeta = {
+  kind: "job_posting";
+  posting_id: string;
+  title: string;
+  company: string;
+  location?: string;
+  employment_type?: string;
+  salary_min?: number;
+  salary_max?: number;
+  salary_currency?: string;
+  salary_period?: string;
+  description?: string;
+  tags?: string[];
+};
+
 type GenericMeta = {
   kind: string;
   [key: string]: any;
 };
 
-type Meta = WalletMeta | MarketMeta | GenericMeta;
+type Meta = WalletMeta | MarketMeta | JobPostingMeta | GenericMeta;
 
 export default function G1Card({
   metadata,
@@ -37,6 +54,8 @@ export default function G1Card({
     return <WalletCard meta={metadata as WalletMeta} mine={mine} />;
   if (metadata.kind === "market")
     return <MarketCard meta={metadata as MarketMeta} mine={mine} />;
+  if (metadata.kind === "job_posting")
+    return <JobPostingCard meta={metadata as JobPostingMeta} mine={mine} />;
 
   return (
     <div className="w-64 rounded-2xl border border-g1-border bg-g1-surface p-4">
@@ -49,6 +68,8 @@ export default function G1Card({
     </div>
   );
 }
+
+/* -------- Wallet -------- */
 
 function WalletCard({ meta, mine }: { meta: WalletMeta; mine: boolean }) {
   const title =
@@ -81,7 +102,6 @@ function WalletCard({ meta, mine }: { meta: WalletMeta; mine: boolean }) {
       </p>
 
       {meta.note && <p className="mt-1 text-xs text-g1-muted">{meta.note}</p>}
-
       {meta.ref && (
         <p className="mt-2 text-[10px] text-g1-muted">Ref: {meta.ref}</p>
       )}
@@ -91,13 +111,11 @@ function WalletCard({ meta, mine }: { meta: WalletMeta; mine: boolean }) {
           Pay now
         </button>
       )}
-
       {meta.action === "payment_request" && mine && (
         <p className="mt-3 text-center text-[10px] text-g1-muted">
           Awaiting payment
         </p>
       )}
-
       {(meta.action === "payment_sent" || meta.action === "receipt") && (
         <p className="mt-3 text-center text-[10px] text-green-400">
           ✓ Completed
@@ -106,6 +124,8 @@ function WalletCard({ meta, mine }: { meta: WalletMeta; mine: boolean }) {
     </div>
   );
 }
+
+/* -------- Market -------- */
 
 function MarketCard({ meta, mine }: { meta: MarketMeta; mine: boolean }) {
   return (
@@ -140,4 +160,102 @@ function MarketCard({ meta, mine }: { meta: MarketMeta; mine: boolean }) {
       </div>
     </a>
   );
+}
+
+/* -------- Job Posting -------- */
+
+function JobPostingCard({
+  meta,
+  mine
+}: {
+  meta: JobPostingMeta;
+  mine: boolean;
+}) {
+  const salaryLabel = formatSalary(meta);
+  const typeLabel = formatEmploymentType(meta.employment_type);
+
+  return (
+    <div
+      className={`w-72 overflow-hidden rounded-2xl border bg-g1-surface ${
+        mine ? "border-g1-accent/40" : "border-g1-border"
+      }`}
+    >
+      <div className="border-b border-g1-border bg-gradient-to-br from-g1-accent/10 to-transparent px-4 py-3">
+        <p className="text-[10px] uppercase tracking-wider text-g1-accent">
+          G1 Jobs · Vacancy
+        </p>
+        <p className="mt-1 text-base font-semibold leading-tight">
+          {meta.title}
+        </p>
+        <p className="mt-1 text-xs text-g1-muted">
+          {meta.company}
+          {meta.location ? ` · ${meta.location}` : ""}
+        </p>
+      </div>
+
+      <div className="space-y-2 px-4 py-3">
+        {typeLabel && (
+          <span className="inline-block rounded-full bg-g1-bg px-2 py-0.5 text-[10px] text-g1-muted">
+            {typeLabel}
+          </span>
+        )}
+
+        {salaryLabel && (
+          <p className="text-sm font-medium text-green-400">{salaryLabel}</p>
+        )}
+
+        {meta.description && (
+          <p className="line-clamp-3 text-xs leading-relaxed text-g1-muted">
+            {meta.description}
+          </p>
+        )}
+
+        {meta.tags && meta.tags.length > 0 && (
+          <div className="flex flex-wrap gap-1 pt-1">
+            {meta.tags.slice(0, 4).map((t) => (
+              <span
+                key={t}
+                className="rounded-full border border-g1-border px-2 py-0.5 text-[10px] text-g1-muted"
+              >
+                {t}
+              </span>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <Link
+        href={`/jobs/${meta.posting_id}`}
+        className="block border-t border-g1-border px-4 py-2.5 text-center text-sm font-medium text-g1-accent"
+      >
+        View & apply →
+      </Link>
+    </div>
+  );
+}
+
+function formatEmploymentType(t?: string): string | null {
+  if (!t) return null;
+  const map: Record<string, string> = {
+    full_time: "Full-time",
+    part_time: "Part-time",
+    contract: "Contract",
+    internship: "Internship",
+    remote: "Remote"
+  };
+  return map[t] ?? t;
+}
+
+function formatSalary(meta: JobPostingMeta): string | null {
+  const cur = meta.salary_currency ?? "NGN";
+  const period = meta.salary_period
+    ? ` / ${meta.salary_period}`
+    : "";
+
+  if (meta.salary_min && meta.salary_max) {
+    return `${cur} ${meta.salary_min.toLocaleString()} – ${meta.salary_max.toLocaleString()}${period}`;
+  }
+  if (meta.salary_min) return `From ${cur} ${meta.salary_min.toLocaleString()}${period}`;
+  if (meta.salary_max) return `Up to ${cur} ${meta.salary_max.toLocaleString()}${period}`;
+  return null;
 }
