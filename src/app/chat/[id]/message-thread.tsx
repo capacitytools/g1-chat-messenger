@@ -263,3 +263,121 @@ export default function MessageThread({
                 )}
 
                 <div
+                  className={`max-w-[85%] overflow-hidden rounded-2xl ${
+                    isCard
+                      ? "bg-transparent"
+                      : mine
+                        ? "bg-g1-accent text-white"
+                        : "bg-g1-surface"
+                  }`}
+                >
+                  {isCard ? (
+                    <G1Card metadata={m.metadata as any} mine={mine} />
+                  ) : (
+                    <>
+                      {m.attachment_url && m.attachment_type === "image" && (
+                        <a href={m.attachment_url} target="_blank" rel="noreferrer">
+                          <img
+                            src={m.attachment_url}
+                            alt="attachment"
+                            className="block max-h-72 w-full object-cover"
+                          />
+                        </a>
+                      )}
+                      {m.attachment_url && m.attachment_type === "video" && (
+                        <video
+                          src={m.attachment_url}
+                          controls
+                          className="block max-h-72 w-full"
+                        />
+                      )}
+                      {m.attachment_url && m.attachment_type === "file" && (
+                        <a
+                          href={m.attachment_url}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="block px-4 py-3 text-sm underline"
+                        >
+                          📎 Download file
+                        </a>
+                      )}
+                      {m.content && (
+                        <p className="px-4 py-2 text-sm break-words">
+                          {m.content}
+                        </p>
+                      )}
+                    </>
+                  )}
+                </div>
+              </li>
+            );
+          })}
+        </ul>
+        <div ref={bottomRef} />
+      </div>
+
+      {pending && (
+        <div className="border-t border-g1-border px-4 py-2 text-xs text-g1-muted">
+          Uploading {pending.filename}…
+        </div>
+      )}
+      {uploadError && (
+        <div className="border-t border-red-500/30 bg-red-500/10 px-4 py-2 text-xs text-red-400">
+          {uploadError}
+        </div>
+      )}
+
+      <form
+        onSubmit={handleSendText}
+        className="flex items-center gap-2 border-t border-g1-border px-4 py-3"
+      >
+        <button
+          type="button"
+          onClick={() => setShowCardComposer(true)}
+          className="rounded-lg border border-g1-border bg-g1-surface px-3 py-2 text-sm"
+          aria-label="Send G1 card"
+        >
+          ✨
+        </button>
+        <button
+          type="button"
+          onClick={() => fileInputRef.current?.click()}
+          disabled={!!pending}
+          className="rounded-lg border border-g1-border bg-g1-surface px-3 py-2 text-sm disabled:opacity-50"
+          aria-label="Attach"
+        >
+          📎
+        </button>
+        <input
+          ref={fileInputRef}
+          type="file"
+          onChange={handleFile}
+          accept="image/*,video/*,application/pdf,.doc,.docx,.txt,.zip"
+          className="hidden"
+        />
+
+        <input
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          placeholder="Message"
+          className="flex-1 rounded-lg border border-g1-border bg-g1-surface px-3 py-2 text-sm outline-none focus:border-g1-accent"
+        />
+        <button
+          type="submit"
+          disabled={sending || !text.trim()}
+          className="rounded-lg bg-g1-accent px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
+        >
+          Send
+        </button>
+      </form>
+
+      {showCardComposer && (
+        <CardComposer
+          conversationId={conversationId}
+          currentUserId={currentUserId}
+          onClose={() => setShowCardComposer(false)}
+        />
+      )}
+    </>
+  );
+}
