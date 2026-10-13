@@ -9,14 +9,12 @@ export default function BotTestPage() {
   const [kind, setKind] = useState<"text" | "market" | "wallet">("market");
   const [content, setContent] = useState("Hello from a bot!");
 
-  // market
   const [title, setTitle] = useState("Test Item");
   const [price, setPrice] = useState("1000");
   const [currency, setCurrency] = useState("NGN");
   const [imageUrl, setImageUrl] = useState("");
   const [itemUrl, setItemUrl] = useState("https://example.com");
 
-  // wallet
   const [amount, setAmount] = useState("5000");
   const [note, setNote] = useState("Test payment");
   const [action, setAction] = useState<"payment_request" | "payment_sent">(
@@ -24,6 +22,7 @@ export default function BotTestPage() {
   );
 
   const [response, setResponse] = useState<string | null>(null);
+  const [debugResponse, setDebugResponse] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
   async function send() {
@@ -71,11 +70,33 @@ export default function BotTestPage() {
       });
 
       const data = await res.json();
-      setResponse(`${res.status} ${res.statusText}\n\n${JSON.stringify(data, null, 2)}`);
+      setResponse(
+        `${res.status} ${res.statusText}\n\n${JSON.stringify(data, null, 2)}`
+      );
     } catch (err: any) {
       setResponse(`Fetch error: ${err.message}`);
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function debugAuth() {
+    setDebugResponse("Loading…");
+    try {
+      const res = await fetch("/api/bots/debug", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-g1-bots-secret": secret
+        },
+        body: JSON.stringify({})
+      });
+      const data = await res.json();
+      setDebugResponse(
+        `${res.status} ${res.statusText}\n\n${JSON.stringify(data, null, 2)}`
+      );
+    } catch (err: any) {
+      setDebugResponse(`Fetch error: ${err.message}`);
     }
   }
 
@@ -96,6 +117,19 @@ export default function BotTestPage() {
         className="mb-4 w-full rounded-lg border border-g1-border bg-g1-surface px-3 py-2"
         placeholder="••••••••"
       />
+
+      <button
+        onClick={debugAuth}
+        className="mb-6 w-full rounded-lg border border-g1-border bg-g1-surface py-2 text-xs"
+      >
+        Debug auth (see what server receives)
+      </button>
+
+      {debugResponse && (
+        <pre className="mb-6 overflow-x-auto whitespace-pre-wrap break-all rounded-lg border border-g1-border bg-g1-surface p-3 text-[10px]">
+          {debugResponse}
+        </pre>
+      )}
 
       <div className="mb-4 grid grid-cols-2 gap-2">
         <div>
