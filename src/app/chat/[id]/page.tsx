@@ -40,6 +40,16 @@ export default async function ConversationPage({
   const others = (profiles ?? []).filter((p) => p.id !== user.id);
   const otherUsername = others[0]?.username ?? "unknown";
 
+  let jobRoom: { company_name: string; is_verified: boolean } | null = null;
+  if (conv.is_group) {
+    const { data: jr } = await supabase
+      .from("job_rooms")
+      .select("company_name, is_verified")
+      .eq("conversation_id", params.id)
+      .maybeSingle();
+    if (jr) jobRoom = jr;
+  }
+
   return (
     <ToastProvider>
       <NotificationWatcher
@@ -55,6 +65,7 @@ export default async function ConversationPage({
             memberCount={participantIds.length}
             members={profiles ?? []}
             currentUserId={user.id}
+            jobRoom={jobRoom}
           />
         ) : (
           <header className="flex items-center gap-3 border-b border-g1-border px-4 py-3">
