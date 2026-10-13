@@ -2,8 +2,9 @@
 
 import { useState } from "react";
 import { createClient } from "@/lib/supabase/client";
+import JobPostingComposer from "./job-posting-composer";
 
-type CardKind = "wallet" | "market" | null;
+type CardKind = "wallet" | "market" | "job" | null;
 
 export default function CardComposer({
   conversationId,
@@ -87,6 +88,16 @@ export default function CardComposer({
     });
   }
 
+  if (kind === "job") {
+    return (
+      <JobPostingComposer
+        conversationId={conversationId}
+        currentUserId={currentUserId}
+        onClose={onClose}
+      />
+    );
+  }
+
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/70 p-4 sm:items-center">
       <div className="w-full max-w-sm rounded-2xl border border-g1-border bg-g1-bg p-5">
@@ -133,8 +144,21 @@ export default function CardComposer({
               </div>
             </button>
 
+            <button
+              onClick={() => setKind("job")}
+              className="flex w-full items-center gap-3 rounded-xl border border-g1-border bg-g1-surface px-4 py-3 text-left"
+            >
+              <span className="text-2xl">💼</span>
+              <div>
+                <p className="text-sm font-medium">Job vacancy</p>
+                <p className="text-xs text-g1-muted">
+                  Post a role with salary, location, and requirements
+                </p>
+              </div>
+            </button>
+
             <p className="pt-2 text-center text-[10px] text-g1-muted">
-              More G1 cards coming: Business · Tribes · Jobs · Learn · Services
+              More G1 cards coming: Business · Tribes · Learn · Services
             </p>
           </div>
         )}
